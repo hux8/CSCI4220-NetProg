@@ -36,46 +36,47 @@
 
 // Packet decription structures
 // Placed inside a union for convenience
-typedef union 
+typedef union __tfp
 {
+   uint16_t opcode;
    // packet_rrq:  specifies a read request packet
    // NOTE: filename must be null terminated and <= 514 bytes in length
-   struct packet_rrq
+   struct 
    {
       uint16_t opcode;
       char filename [514];
-   };
+   } packet_rrq;
    // packet_wrq:  specifies a read request packet
    // NOTE: filename must be null terminated and <= 514 bytes in length
-   struct packet_wwq
+   struct 
    {
       uint16_t opcode;
       char filename [514];
-   };
+   } packet_wwq;
    // packet_data: specifies a data packet.
    // data contents must be null terminated and no greater than 512 bytes
    // total.
-   struct packet_data
+   struct 
    {
       uint16_t opcode;
       uint16_t blocknum;
       char data[512];
-   };
+   } packet_data;
    // packet_ack: specifies an acknowledgement packet.
-   struct packet_ack
+   struct 
    {
       uint16_t opcode;
       uint16_t blocknum;
-   };
+   } packet_ack;
    // packet_error: represents an error packet.
    // message (msg) must be null terminated and no greater than
    // 512 bytes total.
-   struct packet_error
+   struct 
    {
       uint16_t opcode;
       uint16_t blocknum;
       char msg[512];
-   };
+   } packet_error;
 
 
 } tftp_packet;
@@ -98,6 +99,12 @@ void sigchld_handler(int v)
    
 }
 
+void sigalrm_handler()
+{
+   printf("[Info] First Alarm triggered. \n");
+   exit(EXIT_FAILURE);
+}
+
 // main(): Starting point for TFTP server. 
 // Designed to handle two additional arguments (argc=3)
 // argv[0] (implied)
@@ -110,25 +117,25 @@ int main(int argc, char** argv)
    // Do a sanity check to make sure we have enough arguments
    if (argc < 3)
    {
-      perror("[Error] Invalid number of arguments!\n
+      perror("[Error] Invalid number of arguments!\n\
       Args: port_start_range port_end_range\n");
       exit(EXIT_FAILURE);
    }
    // Parse the range borders (inclusive)
-   int portCounter = rangeStart;
    int rangeStart = atoi(argv[1]);
    int rangeEnd = atoi(argv[2]);
-   
+   int portCounter = rangeStart;
 
    // Set up SIGNAL handlers for when clients connect
    // or if there are SIGNAL errors 
    signal(SIGCHLD,sigchld_handler);
-   
+   signal(SIGALRM,sigalrm_handler);
+   alarm(10); // Set process alarm after 10 seconds 
    // Set up server socket
    struct sockaddr_in servaddr; // Stores information about the socket
    int socket_fd; // Socket file descriptor
    socklen_t addrlen = sizeof(servaddr); // Total bytes length of the socket description
-   memset(&sock_desc,0,addrlen); // Set the socket description to blank
+   memset(&servaddr,0,addrlen); // Set the socket description to blank
 
    // tftp server setup using udp protocol
    
@@ -151,7 +158,7 @@ int main(int argc, char** argv)
    while(portCounter <= rangeEnd)
    {
       // Set server to listen on specific port in the range
-      servaddr.sin_port = htons(port_cntr);
+      servaddr.sin_port = htons(portCounter);
       if (bind(socket_fd,(struct sockaddr *)&servaddr,addrlen) < 0)
       {
          // Binding failure!
@@ -162,7 +169,7 @@ int main(int argc, char** argv)
       struct sockaddr_in clientaddr;
       socklen_t slen = sizeof(clientaddr);
       getsockname(socket_fd,(struct sockaddr *)&servaddr,&addrlen);
-      printf("[Server] Bound on port %d\n",ntohs(servaddr.sin_port));
+      printf("[Server] Bound on port. Waiting for a client %d\n",ntohs(servaddr.sin_port));
       ret = recvfrom(socket_fd,&myPacket,sizeof(myPacket),0,
                (struct sockaddr *)&clientaddr,&slen);
 
@@ -194,23 +201,28 @@ int main(int argc, char** argv)
          pid_t pval = fork();
          if (pval == 0)
          {
+            pid_t pt = getpid();
+            printf("[Child %d] Handling request from client\n",pt);
             // We are a child process
             if (opc == OP_RRQ)
             {
                // TODO: insert RRQ call here
+               printf("[Child %d] Handling RRQ from client\n",pt);
             }
             if (opc == OP_WRQ)
             {
                // TODO: insert WRQ call here
+               printf("[Child %d] Handling WRQ from client\n",pt);
             }
          } else {
             // We are a parent process
             // Nothing more to do
          }
       } else {
+         // Our received packet after binding was 
 
       }    
-      port_cntr += 1; // Increment port counter
+      portCounter += 1; // Increment port counter
    }
    return 0;
 }
