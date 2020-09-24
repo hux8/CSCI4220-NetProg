@@ -1,5 +1,5 @@
 // CSCI 4220 - Assignment 1 (TFTP Server)
-//
+// Note: Use port ranges starting > 1200 otherwise permission denied
 
 #include <stdio.h>  
 #include <signal.h>
@@ -23,11 +23,11 @@
 #define DEBUG  1
 
 // Operation codes (opcode)
-#define OP_RRQ       0
-#define OP_WRQ       1
-#define OP_DATA      2
-#define OP_ACK       3
-#define OP_ERR       4
+#define OP_RRQ       1
+#define OP_WRQ       2
+#define OP_DATA      3
+#define OP_ACK       4
+#define OP_ERR       5
 
 
 
@@ -102,7 +102,8 @@ void sigchld_handler(int v)
 void sigalrm_handler()
 {
    printf("[Info] First Alarm triggered. \n");
-   exit(EXIT_FAILURE);
+   
+   
 }
 
 // main(): Starting point for TFTP server. 
@@ -130,46 +131,60 @@ int main(int argc, char** argv)
    // or if there are SIGNAL errors 
    signal(SIGCHLD,sigchld_handler);
    signal(SIGALRM,sigalrm_handler);
-   alarm(10); // Set process alarm after 10 seconds 
+   
    // Set up server socket
    struct sockaddr_in servaddr; // Stores information about the socket
    int socket_fd; // Socket file descriptor
-   socklen_t addrlen = sizeof(servaddr); // Total bytes length of the socket description
-   memset(&servaddr,0,addrlen); // Set the socket description to blank
-
-   // tftp server setup using udp protocol
-   
-   socket_fd = socket(PF_INET,SOCK_DGRAM,0);
-   if (socket_fd < 0)
-   {
-      // Error: Socket file descriptor could not be initialized
-      perror("[Error] socket file descriptor failure!\n");
-      exit(EXIT_FAILURE);
-   }
-
-   servaddr.sin_family = AF_INET;
-   servaddr.sin_addr.s_addr = INADDR_ANY;
+  
 
    // Essential variables
    tftp_packet myPacket;
    uint16_t ret;
    unsigned short int opc; // operational code
    uint16_t* opc_ptr; // pointer for operational code
+   int bres;
+   
+
    while(portCounter <= rangeEnd)
    {
-      // Set server to listen on specific port in the range
+      pid_t pv = getpid();
+      printf("[Server %d] portC: %d, rangeEnd: %d\n",pv,portCounter,rangeEnd);
+      // Configure a fresh connection each time we connect with a new client
+      socklen_t addrlen = sizeof(servaddr); // Total bytes length of the socket description
+      memset(&servaddr,0,addrlen); // Set the socket description to blank
+
+      // tftp server setup using udp protocol
+      
+      socket_fd = socket(PF_INET,SOCK_DGRAM,0);
+      if (socket_fd < 0)
+      {
+         // Error: Socket file descriptor could not be initialized
+         perror("[Error] socket file descriptor failure!\n");
+         exit(EXIT_FAILURE);
+      }
+      servaddr.sin_family = AF_INET;
+      servaddr.sin_addr.s_addr = INADDR_ANY;
       servaddr.sin_port = htons(portCounter);
-      if (bind(socket_fd,(struct sockaddr *)&servaddr,addrlen) < 0)
+      bres = bind(socket_fd,(struct sockaddr *)&servaddr,addrlen);
+
+      if (bres < 0)
       {
          // Binding failure!
          perror("[Error] Binding failure!\n");
          exit(EXIT_FAILURE);
       }
+
+      
+     
+      // Set server to listen on specific port in the range
+     
+      
       // Confirm the socket port
       struct sockaddr_in clientaddr;
       socklen_t slen = sizeof(clientaddr);
       getsockname(socket_fd,(struct sockaddr *)&servaddr,&addrlen);
-      printf("[Server] Bound on port. Waiting for a client %d\n",ntohs(servaddr.sin_port));
+      
+      printf("[Server %d] Bound on port. Waiting for a client %d\n",pv,ntohs(servaddr.sin_port));
       ret = recvfrom(socket_fd,&myPacket,sizeof(myPacket),0,
                (struct sockaddr *)&clientaddr,&slen);
 
@@ -181,7 +196,7 @@ int main(int argc, char** argv)
          }
 
          // Error on packet?
-         perror("[Error] recvfrom() failure! Could not receive from client\n");
+         printf("[Error %d] recvfrom() failure! Could not receive from client\n",pv);
          exit(EXIT_FAILURE);
       }
       // --------------
@@ -202,7 +217,7 @@ int main(int argc, char** argv)
          if (pval == 0)
          {
             pid_t pt = getpid();
-            printf("[Child %d] Handling request from client\n",pt);
+            //printf("[Child %d] Handling request from client\n",pt);
             // We are a child process
             if (opc == OP_RRQ)
             {
@@ -214,15 +229,18 @@ int main(int argc, char** argv)
                // TODO: insert WRQ call here
                printf("[Child %d] Handling WRQ from client\n",pt);
             }
+            return 0;
          } else {
             // We are a parent process
             // Nothing more to do
          }
+
       } else {
          // Our received packet after binding was 
 
       }    
       portCounter += 1; // Increment port counter
+      close(socket_fd);
    }
    return 0;
 }
