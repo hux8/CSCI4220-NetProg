@@ -101,8 +101,8 @@ void sigchld_handler(int v)
 
 void sigalrm_handler()
 {
-   printf("[Info] First Alarm triggered. \n");
-   
+   printf("[Info] Child alarm triggered. \n");
+   exit(EXIT_FAILURE);
    
 }
 
@@ -187,7 +187,7 @@ int main(int argc, char** argv)
       printf("[Server %d] Bound on port. Waiting for a client %d\n",pv,ntohs(servaddr.sin_port));
       ret = recvfrom(socket_fd,&myPacket,sizeof(myPacket),0,
                (struct sockaddr *)&clientaddr,&slen);
-
+      
       if (ret < 0)
       {
          if (errno == EINTR)
@@ -213,9 +213,12 @@ int main(int argc, char** argv)
       {
          // We have a read or write request
          // use the appropriate handling
+         
          pid_t pval = fork();
          if (pval == 0)
          {
+            close(socket_fd); // Close duplicate child's version
+            alarm(10); // Put an alarm on the child
             pid_t pt = getpid();
             //printf("[Child %d] Handling request from client\n",pt);
             // We are a child process
@@ -229,6 +232,7 @@ int main(int argc, char** argv)
                // TODO: insert WRQ call here
                printf("[Child %d] Handling WRQ from client\n",pt);
             }
+           
             return 0;
          } else {
             // We are a parent process
