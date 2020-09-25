@@ -81,6 +81,50 @@ typedef union __tfp
 
 } tftp_packet;
 
+// ACK packet is sent
+
+ssize_t send_ack_packet (int socket_fd, struct sockaddr_in * sock_INF, socklen_t sock_len, 
+                        uint16_t blockNumber) 
+{
+   // Store ack # and block number in packet data
+   tftp_packet msg;
+   msg.packet_ack.opcode = htons(OP_ACK);
+   msg.packet_ack.blocknum = htons(blockNumber);
+
+   // Return value contains 
+   ssize_t ret;
+   if((ret = sendto(socket_fd, &msg, sizeof(msg.packet_ack),
+            0, (struct sockaddr *) sock_INF, sock_len)) < 0) 
+   {
+      printf("[Error] sendto() was unsuccessful");
+      exit(EXIT_FAILURE);
+   }
+   return ret;
+}
+
+//  errorMsg sent over with packet error info containing errorMsg, code, and opcode.
+
+ssize_t errorMsg (int socket_fd, struct sockaddr_in **sock_INF, socklen_t sock_len, 
+                  const char* errorMsg, int errorCode)
+{
+   tftp_packet msg;
+   msg.opcode = htons(OP_ERR);
+
+   strncpy(msg.packet_error.msg, errorMsg, sizeof(msg.packet_error.msg));
+   msg.packet_error.blocknum = errorCode;
+
+   ssize_t ret;
+
+   // send information over
+   if ((ret = sendto(socket_fd, &message, strlen(errorMsg) + 4, 0, (struct sockaddr*) * sock_INF, 
+                     sock_len)) < 0)
+   {
+      printf("[Error] sendto() was unsuccessful");
+      exit(EXIT_FAILURE);
+   }
+   return ret;
+}
+
 // format_packet(): Will generate a tftp_packet based on the opcode specified
 
 tftp_packet format_packet(int opcode)
