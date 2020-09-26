@@ -1,6 +1,7 @@
 // CSCI 4220 - Assignment 1 (TFTP Server)
+// Team Members: Wendy Hu, Nicholas Jung, Marcus Panozm, Harry Tan
 // Note: Use port ranges starting > 1200 otherwise permission denied
-
+// version 2
 #include <stdio.h>  
 #include <signal.h>
 #include <unistd.h>
@@ -36,7 +37,7 @@
 
 // Packet decription structures
 // Placed inside a union for convenience
-typedef union __tfp
+typedef union __tftp
 {
    uint16_t opcode;
    // packet_rrq:  specifies a read request packet
@@ -52,7 +53,7 @@ typedef union __tfp
    {
       uint16_t opcode;
       char filename [514];
-   } packet_wwq;
+   } packet_wrq;
    // packet_data: specifies a data packet.
    // data contents must be null terminated and no greater than 512 bytes
    // total.
@@ -104,7 +105,7 @@ ssize_t send_ack_packet (int socket_fd, struct sockaddr_in * sock_INF, socklen_t
 
 //  errorMsg sent over with packet error info containing errorMsg, code, and opcode.
 
-ssize_t errorMsg (int socket_fd, struct sockaddr_in **sock_INF, socklen_t sock_len, 
+ssize_t errorMsg (int socket_fd, struct sockaddr_in *sock_INF, socklen_t sock_len, 
                   const char* errorMsg, int errorCode)
 {
    tftp_packet msg;
@@ -116,7 +117,7 @@ ssize_t errorMsg (int socket_fd, struct sockaddr_in **sock_INF, socklen_t sock_l
    ssize_t ret;
 
    // send information over
-   if ((ret = sendto(socket_fd, &message, strlen(errorMsg) + 4, 0, (struct sockaddr*) * sock_INF, 
+   if ((ret = sendto(socket_fd, &msg, strlen(errorMsg) + 4, 0, (struct sockaddr*)  sock_INF, 
                      sock_len)) < 0)
    {
       printf("[Error] sendto() was unsuccessful");
@@ -127,10 +128,130 @@ ssize_t errorMsg (int socket_fd, struct sockaddr_in **sock_INF, socklen_t sock_l
 
 // format_packet(): Will generate a tftp_packet based on the opcode specified
 
-tftp_packet format_packet(int opcode)
-{
 
+//rrq request (reading request)
+ssize_t send_rrq (int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg) 
+{
+   //tftp_packet msg;
+   //msg.opcode = htons(OP_RRQ);
+
+   
+   int tid = ntohs(sock_INF->sin_port);
+   int block = 0;
+   
+   socklen_t sock_len;
+
+   uint16_t ret;
+   unsigned short int opc; // operational code
+   uint16_t* opc_ptr; // pointer for operational code
+   
+   char buffer[516];
+   char backupBuffer[516];
+   memset(buffer,0,516);
+   memset(backupBuffer,0,516);
+    ssize_t n = 0;
+    unsigned short * opcode_ptr = (unsigned short *)buffer;
+    char filename[80];
+    int count = 0;
+  
+  
+   FILE * fp;
+   strcpy(filename, msg.packet_rrq.filename); //TODO: fileName
+   fp = fopen(msg.packet_rrq.filename, "r");
+  
+   if(fp == NULL)
+   {
+      errorMsg(socket_fd, sock_INF, sock_len, "[Error] file not found",1);
+      exit(EXIT_FAILURE);
+   }
+  
+  while(1)
+  {
+    block++;
+    //creatinga a data packet to send
+    int n = 0;
+    *opcode_ptr = htons(OP_DATA);
+    *(opcode_ptr+1) = htons(block);
+    for(n = 4; n < 516; n++)
+    {
+        if(feof(fp))
+        {
+           n -= 1;
+           break;
+        } 
+        buffer[n] = fgetc(fp);
+        
+    } 
+    
+    for(int i = 0; i < n; i++)
+    {
+        backupBuffer[i] = buffer[i];
+    } 
+    
+    
+   // struct packet dataPack = dataPacket(block, buffer, n);
+    int reply = sendto(socket_fd, buffer, n, 0, (struct sockaddr *)sock_INF, sizeof(*sock_INF));
+    
+    //wait for reply
+        
+    try_rec:
+    reply = recvfrom(socket_fd, buffer, n, 0, (struct sockaddr *)&sock_INF,&sock_len);
+        if(reply < 0) {
+            if(errno == EINTR) goto try_rec;
+            if(errno == EWOULDBLOCK){//1 second timeout
+                if(++count >= 10){
+                    printf("transaction timed out\n");
+                    break;
+                }
+                //restore last packet
+                for(int i = 0; i < n; i++)
+   							{
+        					backupBuffer[i] = buffer[i];
+    						} 
+              
+                reply = sendto(socket_fd, buffer, reply, 0, (struct sockaddr *)sock_INF, sizeof(*sock_INF));
+ 
+                goto try_rec;
+            }
+            perror("recvfrom");
+            exit(-1);
+        }
+        //check the tid
+        if(ntohs(sock_INF->sin_port) != tid){
+            //different client
+            *opcode_ptr = htons(OP_ERR);
+            *(opcode_ptr+1) = htons(5);
+            *(buffer+4) = 0;
+            reply = sendto(socket_fd, buffer, n, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));//dest_sock_info  is sock_INF
+            goto try_rec;
+        }
+
+        //reset the timout counter
+        count = 0;
+
+        /* check the opcode */ 
+        if(ntohs(*opcode_ptr) != OP_ACK) {
+            if(ntohs(*opcode_ptr) == OP_RRQ){
+                //restore last packet
+                for(int i = 0; i < n; i++)
+                    buffer[i] = backupBuffer[i];
+                  
+                reply = sendto(socket_fd, buffer, n, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
+            }
+            goto try_rec;
+        }
+        if(ntohs(*(opcode_ptr+1)) != block)
+            goto try_rec;
+
+        if(n < 516)
+            break;
+    }
+
+    fclose(fp);
+  
+	return EXIT_SUCCESS;
 }
+
 
 
 // SIGNAL handlers
@@ -188,9 +309,10 @@ int main(int argc, char** argv)
    uint16_t* opc_ptr; // pointer for operational code
    int bres;
    
-
+   int itr = 0;
    while(portCounter <= rangeEnd)
    {
+
       pid_t pv = getpid();
       printf("[Server %d] portC: %d, rangeEnd: %d\n",pv,portCounter,rangeEnd);
       // Configure a fresh connection each time we connect with a new client
@@ -203,7 +325,7 @@ int main(int argc, char** argv)
       if (socket_fd < 0)
       {
          // Error: Socket file descriptor could not be initialized
-         perror("[Error] socket file descriptor failure!\n");
+         printf("[Error %d] socket file descriptor failure!\n",pv);
          exit(EXIT_FAILURE);
       }
       servaddr.sin_family = AF_INET;
@@ -214,7 +336,7 @@ int main(int argc, char** argv)
       if (bres < 0)
       {
          // Binding failure!
-         perror("[Error] Binding failure!\n");
+         printf("[Error iteration %d] Binding failure!\n",itr);
          exit(EXIT_FAILURE);
       }
 
@@ -243,6 +365,7 @@ int main(int argc, char** argv)
          printf("[Error %d] recvfrom() failure! Could not receive from client\n",pv);
          exit(EXIT_FAILURE);
       }
+
       // --------------
       // Packet received! If we have a rrq or wrq, fork
       // off process and conduct the transfer of data
@@ -253,6 +376,7 @@ int main(int argc, char** argv)
       *opc_ptr = myPacket.opcode;
       opc = ntohs(*opc_ptr); // Convert value to perm storage across loops
       printf("[debug] received packet with opcode %d\n",opc);
+
       if (opc == OP_RRQ || opc == OP_WRQ)
       {
          // We have a read or write request
@@ -261,19 +385,29 @@ int main(int argc, char** argv)
          pid_t pval = fork();
          if (pval == 0)
          {
-            close(socket_fd); // Close duplicate child's version
+            myPacket.opcode = opc;
+            
             alarm(10); // Put an alarm on the child
             pid_t pt = getpid();
             //printf("[Child %d] Handling request from client\n",pt);
             // We are a child process
             if (opc == OP_RRQ)
-            {
+            {               
                // TODO: insert RRQ call here
+               printf("[debug] packet contents: opcode: %d %s\n",myPacket.opcode,myPacket.packet_rrq.filename);
                printf("[Child %d] Handling RRQ from client\n",pt);
+               send_rrq(socket_fd,&clientaddr,myPacket);
             }
             if (opc == OP_WRQ)
-            {
+            {               
                // TODO: insert WRQ call here
+               printf("[debug] packet contents: opcode: %d %s\n",myPacket.opcode,myPacket.packet_wrq.filename);
+               // Read all characters from the write request
+               char* strMath = myPacket.packet_wrq.filename;
+               uint16_t str1Len = strlen(strMath);
+               char* str2 = (strMath + str1Len);
+               printf("[debug] filename: %s \n data: %s\n",strMath,str2);
+               
                printf("[Child %d] Handling WRQ from client\n",pt);
             }
            
@@ -288,6 +422,7 @@ int main(int argc, char** argv)
 
       }    
       portCounter += 1; // Increment port counter
+      itr += 1;
       close(socket_fd);
    }
    return 0;
