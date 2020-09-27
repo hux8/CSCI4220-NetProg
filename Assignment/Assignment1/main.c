@@ -156,18 +156,19 @@ void wwq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
    int blockIndex = 0;
    int awaitData = 1; // We still have data to read!
    // File is open at this point! Now send acknowledgement
-   send_ack_packet(socket_fd,(struct sockaddr_in *)sock_INF,blockIndex);
+  // send_ack_packet(socket_fd,(struct sockaddr_in *)sock_INF,blockIndex);
    char ack[4] = {0,4,0,0};
    ushort* opc_ptr = (ushort*)buff;
    ushort* block = (ushort*)(buff + 1);
    char* text = (char*)(buff + 2);
    //*(text + strlen(text)) = '\0';
-   sendto(socket_fd,ack,4,0,(struct sockaddr*)  sock_INF,sizeof(sock_INF));
+   sendto(socket_fd,ack,4,0,(struct sockaddr*)  sock_INF,sizeof(*sock_INF));
    while (awaitData)
    {
+      memset(buff,0,516);
       // Attempt to receive data after acknowledgement
       n = recvfrom(socket_fd, buff, 516, 0,
-       (struct sockaddr *)&sock_INF, &sock_len);
+       (struct sockaddr*)&sock_INF, &sock_len);
       // If we did notreceive bytes, post error
       
       printf("received %d bytes!\n",n);
@@ -182,8 +183,8 @@ void wwq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
        printf("[debug]Received packet opc: %d block: %d\n",
           htons(*opc_ptr),htons(*block));
       printf("contents: %s\n",text);
-      htons(buff);
-      fwrite(buff + 4,1,n,fp);
+      
+      fwrite(buff + 4,1,strlen(buff + 4),fp);
       //fprintf(fp,"%s",text);
 
       // Check to see if this is the last data packet
@@ -192,149 +193,21 @@ void wwq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
          awaitData = 0;
       }
       blockIndex += 1;
+      printf("block index: %d\n",blockIndex);
       ack[2] = blockIndex / 10;
       ack[3] = blockIndex % 10;
       // Send acknowledgement back
-      sendto(socket_fd,ack,4,0,(struct sockaddr*)  sock_INF,sizeof(sock_INF));
-
+      printf("ack packet: %c %c %c %c\n",ack[0] + '0',ack[1] + '0',ack[2] + '0',ack[3] + '0');
+      int k = sendto(socket_fd,ack,4,0,(struct sockaddr*) sock_INF,sizeof(*sock_INF));
+      printf("send acknowledgement with %d bytes\n",k);
+      printf("%d\n",errno);
    }
+   printf("debug] closing the file\n");
    free(buff);
    fclose(fp); // CLose the file pointer
-
+   
+   alarm(0);
 }
-
-//wrq request
-// void handle_wrq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
-
-//    //tftp_packet filePacket;
-
-//    char backupBuffer[516];
-//    memset(backupBuffer,0,516);
-//    char buffer [516];
-//    memset(buffer,0,516);
-
-//    strcpy(buffer+2, msg.packet_wrq.filename); 
-
-//     ssize_t n = 0;
-//     int tid = ntohs(sock_INF->sin_port);
-//     unsigned short * opcode_ptr = (unsigned short *)buffer;
-//     char filename[80];
-//     FILE * fp;
-//     int block = 0;
-//     socklen_t sock_len;
-//     int more = 1;
-//     int last_block = 0;
-//     int count = 0;
-
-//    int blockIndex = 0;
-
-//     //get file
-//     strcpy(filename, msg.packet_wrq.filename); 
-//     //strcpy(buffer, filename);
-//     fp = fopen(filename, "w");
-
-    
-//     printf("fileName is %s\n", filename);
-//     printf("Buffer is%s \n",buffer);
-
-
-//     //store contents of this packet
-//     for(int i = 0; i < 516; i++)
-//         backupBuffer[i] = buffer[i];
-//     int last_packet_size = 4;
-    
-
-//     // Send acknowledgement 
-//     send_ack_packet(socket_fd,sock_INF,&sock_len,blockIndex);
-
-//     while(more){
-//         n = recvfrom(socket_fd, buffer, 516, 0, (struct sockaddr *)&sock_INF, &sock_len);
-        
-//         if(n < 0) {
-//             if(errno == EINTR) continue;
-//             if(errno == EWOULDBLOCK){//1 second timeout
-//                 if(++count >= 10){
-//                     printf("transaction timed out\n");
-//                     break;
-//                 }
-//                 //restore last packet
-//                 for(int i = 0; i < 516; i++)
-//                     buffer[i] = backupBuffer[i];
-//                 n = sendto(socket_fd, buffer, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-//                 continue;
-//             }
-//             perror("recvfrom");
-//             exit(-1);
-//         }
-
-//         printf("[debug] received data packet!\n n= %d\n contents= %s\n",n,buffer + 4);
-
-//         //check the tid
-//         if(ntohs(sock_INF->sin_port) != tid){
-//             //different client
-//             printf("[debug] different client detected! sockINF: %d tid: %d\n",sock_INF->sin_port,tid);
-//             *opcode_ptr = htons(OP_ERR);
-//             *(opcode_ptr+1) = htons(5);
-//             *(buffer+4) = 0;
-//             n = sendto(socket_fd, buffer, 5, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-//             continue;
-//         }
-
-//         //reset the timout counter
-//         count = 0;
-
-//         /* check the opcode */ 
-//         if(*opcode_ptr != OP_DATA) {
-//             if(*opcode_ptr == OP_WRQ){
-//                printf("[debug] aaaaa\n");
-//                 //restore last packet
-//                 for(int i = 0; i < 517; i++)
-//                     buffer[i] = backupBuffer[i];
-//                 n = sendto(socket_fd, buffer, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-//             }
-//             continue;
-//         }
-
-//         /* At this point, the tid has been verified and it is a DATA packet */
-//         printf("[debug] %d We reached the point of getting data! \n",getpid());
-//       //   block = ntohs(*(opcode_ptr+1));
-//       //   if(block == last_block){
-//       //       //restore last packet
-//       //       printf("[debug] We are at last packet?\n");
-//       //       for(int i = 0; i < 517; i++)
-//       //           buffer[i] = backupBuffer[i];
-//       //       n = sendto(socket_fd, buffer, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-//       //       continue;
-//       //   }
-
-//         buffer[n] = '\0';
-//         fprintf(fp, "%s\n", buffer+4);
-
-//         if(n < 516) //last packet
-//          {
-//             more = 0;
-            
-//          } else {
-//             blockIndex += 1;
-//          }
-            
-
-//       //   //send an ack
-//       //   *opcode_ptr = htons(OP_ACK);
-//       //   *(opcode_ptr+1) = htons(block);
-
-//         //store contents of this packet
-//         for(int i = 0; i < 516; i++)
-//             backupBuffer[i] = buffer[i];
-//       //   last_packet_size = 4;
-//         // Ack packet
-//       send_ack_packet(socket_fd,sock_INF,&sock_len,blockIndex);
-        
-//     }    .
-//     fclose(fp);  
-// }
-
-
 
 //rrq request (reading request)
 ssize_t handle_rrq (int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg) 
@@ -466,8 +339,7 @@ void sigchld_handler(int v)
 void sigalrm_handler()
 {
    printf("[Info] Child alarm triggered. \n");
-   exit(EXIT_FAILURE);
-   
+   exit(EXIT_FAILURE);   
 }
 
 // main(): Starting point for TFTP server. 
@@ -500,7 +372,6 @@ int main(int argc, char** argv)
    struct sockaddr_in servaddr; // Stores information about the socket
    int socket_fd; // Socket file descriptor
   
-
    // Essential variables
    tftp_packet myPacket;
    uint16_t ret;
@@ -619,10 +490,11 @@ int main(int argc, char** argv)
       } else {
          // Our received packet after binding was 
 
-      }    
+      }   
+
       portCounter += 1; // Increment port counter
       itr += 1;
-      close(socket_fd);
+      
    }
    return 0;
 }
