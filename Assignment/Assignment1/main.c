@@ -52,7 +52,7 @@ typedef union __tftp
    struct 
    {
       uint16_t opcode;
-      char filename [517];
+      char filename [514];
    } packet_wrq;
    // packet_data: specifies a data packet.
    // data contents must be null terminated and no greater than 512 bytes
@@ -61,7 +61,7 @@ typedef union __tftp
    {
       uint16_t opcode;
       uint16_t blocknum;
-      char data[512];
+      char data[516];
    } packet_data;
    // packet_ack: specifies an acknowledgement packet.
    struct 
@@ -84,22 +84,34 @@ typedef union __tftp
 
 // ACK packet is sent
 
-ssize_t send_ack_packet (int socket_fd, struct sockaddr_in * sock_INF, socklen_t sock_len, 
+ssize_t send_ack_packet (int socket_fd, struct sockaddr_in * sock_INF,  
                         uint16_t blockNumber) 
 {
    // Store ack # and block number in packet data
    tftp_packet msg;
-   msg.packet_ack.opcode = htons(OP_ACK);
+   msg.packet_ack.opcode = OP_ACK;
    msg.packet_ack.blocknum = htons(blockNumber);
 
    // Return value contains 
    ssize_t ret;
-   if((ret = sendto(socket_fd, &msg, sizeof(msg.packet_ack),
-            0, (struct sockaddr *) sock_INF, sock_len)) < 0) 
+   char ack[4] = {0,4,0,0};
+   ret = sendto(socket_fd,ack,sizeof(msg.packet_ack), 0,(struct sockaddr *)sock_INF, sizeof(*sock_INF));
+   printf("debug ret: %d\n",(unsigned int)ret);
+   printf("[debug] sizeof packet: %d\n",(unsigned int)sizeof(msg.packet_ack));
+   printf("[debug] contents: %d %d\n",msg.packet_ack.opcode, msg.packet_ack.blocknum);
+   while (ret < 0 && errno == EINTR)
    {
-      printf("[Error] sendto() was unsuccessful");
-      exit(EXIT_FAILURE);
+      ret = sendto(socket_fd,ack,sizeof(msg.packet_ack), 0,(struct sockaddr *)sock_INF, sizeof(*sock_INF));
    }
+
+   if (ret < 0)
+   {
+     printf("[Error (ackpacket)] sendto() was unsuccessful\n");
+     printf("with error code %d \n", errno);
+
+     exit(EXIT_FAILURE);
+   }
+    
    return ret;
 }
 
@@ -126,125 +138,201 @@ ssize_t errorMsg (int socket_fd, struct sockaddr_in *sock_INF, socklen_t sock_le
    return ret;
 }
 
+void wwq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
+   FILE* fp; // File handler
+   fp = fopen(msg.packet_wrq.filename,"wb");
+   if (!fp)
+   {
+      printf("[Error] File could not be opened for writing! : %s\n",msg.packet_wrq.filename);
+      exit(1);
+   }
+   tftp_packet packet;
+   memset(packet.packet_data.data,0,516);
+   char* buff = malloc(516);
+   int n;
+   int count = 0;
+   socklen_t sock_len;
+   int tid = ntohs(sock_INF->sin_port);
+   int blockIndex = 0;
+   int awaitData = 1; // We still have data to read!
+   // File is open at this point! Now send acknowledgement
+   send_ack_packet(socket_fd,(struct sockaddr_in *)sock_INF,blockIndex);
+   char ack[4] = {0,4,0,0};
+   ushort* opc_ptr = (ushort*)buff;
+   ushort* block = (ushort*)(buff + 1);
+   char* text = (char*)(buff + 2);
+   //*(text + strlen(text)) = '\0';
+   sendto(socket_fd,ack,4,0,(struct sockaddr*)  sock_INF,sizeof(sock_INF));
+   while (awaitData)
+   {
+      // Attempt to receive data after acknowledgement
+      n = recvfrom(socket_fd, buff, 516, 0,
+       (struct sockaddr *)&sock_INF, &sock_len);
+      // If we did notreceive bytes, post error
+      
+      printf("received %d bytes!\n",n);
+      if(n < 0) {
+         // Invalid receiving! Error occured
+         
+         perror("recvfrom");
+         exit(-1);
+      }
+      
+      // Write the bytes received to the file
+       printf("[debug]Received packet opc: %d block: %d\n",
+          htons(*opc_ptr),htons(*block));
+      printf("contents: %s\n",text);
+      htons(buff);
+      fwrite(buff + 4,1,n,fp);
+      //fprintf(fp,"%s",text);
 
+      // Check to see if this is the last data packet
+      if (n < 516)
+      {
+         awaitData = 0;
+      }
+      blockIndex += 1;
+      ack[2] = blockIndex / 10;
+      ack[3] = blockIndex % 10;
+      // Send acknowledgement back
+      sendto(socket_fd,ack,4,0,(struct sockaddr*)  sock_INF,sizeof(sock_INF));
+
+   }
+   free(buff);
+   fclose(fp); // CLose the file pointer
+
+}
 
 //wrq request
-void handle_wrq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
+// void handle_wrq(int socket_fd, struct sockaddr_in *sock_INF,tftp_packet msg){
 
-   tftp_packet filePacket;
-   memset(filePacket.packet_data.data,0,517);
-   char backupBuffer[517];
-   memset(backupBuffer,0,517);
+//    //tftp_packet filePacket;
 
-    ssize_t n = 0;
-    int tid = ntohs(sock_INF->sin_port);
-    char* buffer = msg.packet_wrq.filename;
-    unsigned short * opcode_ptr = (unsigned short *)msg.packet_wrq.opcode;
-    char filename[80];
-    FILE * fp;
-    int block = 0;
-    socklen_t sock_len;
-    int more = 1;
-    int last_block = 0;
-    int count = 0;
+//    char backupBuffer[516];
+//    memset(backupBuffer,0,516);
+//    char buffer [516];
+//    memset(buffer,0,516);
 
-   
+//    strcpy(buffer+2, msg.packet_wrq.filename); 
 
-    //get file
-    strcpy(filename, msg.packet_wrq.filename); 
-    //strcpy(buffer, filename);
-    fp = fopen(filename, "w");
+//     ssize_t n = 0;
+//     int tid = ntohs(sock_INF->sin_port);
+//     unsigned short * opcode_ptr = (unsigned short *)buffer;
+//     char filename[80];
+//     FILE * fp;
+//     int block = 0;
+//     socklen_t sock_len;
+//     int more = 1;
+//     int last_block = 0;
+//     int count = 0;
 
-    //Ack packet, block #0
-    *opcode_ptr = htons(OP_ACK);
-    *(opcode_ptr + 1) = htons(block);
-    printf("fileName is %s\n", filename);
-    printf("Buffer is%s \n",msg.packet_wrq.filename);
+//    int blockIndex = 0;
+
+//     //get file
+//     strcpy(filename, msg.packet_wrq.filename); 
+//     //strcpy(buffer, filename);
+//     fp = fopen(filename, "w");
+
+    
+//     printf("fileName is %s\n", filename);
+//     printf("Buffer is%s \n",buffer);
 
 
-    //store contents of this packet
-    for(int i = 0; i < 517; i++)
-        backupBuffer[i] = msg.packet_wrq.filename[i];
-    int last_packet_size = 4;
+//     //store contents of this packet
+//     for(int i = 0; i < 516; i++)
+//         backupBuffer[i] = buffer[i];
+//     int last_packet_size = 4;
     
 
-    //send the first ack to begin receiving data
-    //n = sendData(socket_fd, buffer, 4, sock_INF);
-    //sendto(socket_fd, filePacket.packet_data.data, n, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-    n = sendto(socket_fd, filename, n, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
+//     // Send acknowledgement 
+//     send_ack_packet(socket_fd,sock_INF,&sock_len,blockIndex);
 
-    while(more){
-        n = recvfrom(socket_fd, msg.packet_wrq.filename, 517, 0, (struct sockaddr *)&sock_INF, &sock_len);
-        if(n < 0) {
-            if(errno == EINTR) continue;
-            if(errno == EWOULDBLOCK){//1 second timeout
-                if(++count >= 10){
-                    printf("transaction timed out\n");
-                    break;
-                }
-                //restore last packet
-                for(int i = 0; i < 517; i++)
-                    msg.packet_wrq.filename[i] = backupBuffer[i];
-                n = sendto(socket_fd, msg.packet_wrq.filename, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-                continue;
-            }
-            perror("recvfrom");
-            exit(-1);
-        }
-        //check the tid
-        if(ntohs(sock_INF->sin_port) != tid){
-            //different client
-            *opcode_ptr = htons(OP_ERR);
-            *(opcode_ptr+1) = htons(5);
-            *(msg.packet_wrq.filename+4) = 0;
-            n = sendto(socket_fd, msg.packet_wrq.filename, 5, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-            continue;
-        }
+//     while(more){
+//         n = recvfrom(socket_fd, buffer, 516, 0, (struct sockaddr *)&sock_INF, &sock_len);
+        
+//         if(n < 0) {
+//             if(errno == EINTR) continue;
+//             if(errno == EWOULDBLOCK){//1 second timeout
+//                 if(++count >= 10){
+//                     printf("transaction timed out\n");
+//                     break;
+//                 }
+//                 //restore last packet
+//                 for(int i = 0; i < 516; i++)
+//                     buffer[i] = backupBuffer[i];
+//                 n = sendto(socket_fd, buffer, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
+//                 continue;
+//             }
+//             perror("recvfrom");
+//             exit(-1);
+//         }
 
-        //reset the timout counter
-        count = 0;
+//         printf("[debug] received data packet!\n n= %d\n contents= %s\n",n,buffer + 4);
 
-        /* check the opcode */ 
-        if(ntohs(*opcode_ptr) != OP_DATA) {
-            if(ntohs(*opcode_ptr) == OP_WRQ){
-                //restore last packet
-                for(int i = 0; i < 517; i++)
-                    msg.packet_wrq.filename[i] = backupBuffer[i];
-                n = sendto(socket_fd, msg.packet_wrq.filename, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-            }
-            continue;
-        }
+//         //check the tid
+//         if(ntohs(sock_INF->sin_port) != tid){
+//             //different client
+//             printf("[debug] different client detected! sockINF: %d tid: %d\n",sock_INF->sin_port,tid);
+//             *opcode_ptr = htons(OP_ERR);
+//             *(opcode_ptr+1) = htons(5);
+//             *(buffer+4) = 0;
+//             n = sendto(socket_fd, buffer, 5, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
+//             continue;
+//         }
 
-        /* At this point, the tid has been verified and it is a DATA packet */
+//         //reset the timout counter
+//         count = 0;
 
-        block = ntohs(*(opcode_ptr+1));
-        if(block == last_block){
-            //restore last packet
-            for(int i = 0; i < 517; i++)
-                msg.packet_wrq.filename[i] = backupBuffer[i];
-            n = sendto(socket_fd, msg.packet_wrq.filename, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
-            continue;
-        }
+//         /* check the opcode */ 
+//         if(*opcode_ptr != OP_DATA) {
+//             if(*opcode_ptr == OP_WRQ){
+//                printf("[debug] aaaaa\n");
+//                 //restore last packet
+//                 for(int i = 0; i < 517; i++)
+//                     buffer[i] = backupBuffer[i];
+//                 n = sendto(socket_fd, buffer, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
+//             }
+//             continue;
+//         }
 
-        msg.packet_wrq.filename[n] = '\0';
-        fprintf(fp, "%s\n", msg.packet_wrq.filename+4);
+//         /* At this point, the tid has been verified and it is a DATA packet */
+//         printf("[debug] %d We reached the point of getting data! \n",getpid());
+//       //   block = ntohs(*(opcode_ptr+1));
+//       //   if(block == last_block){
+//       //       //restore last packet
+//       //       printf("[debug] We are at last packet?\n");
+//       //       for(int i = 0; i < 517; i++)
+//       //           buffer[i] = backupBuffer[i];
+//       //       n = sendto(socket_fd, buffer, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));
+//       //       continue;
+//       //   }
 
-        if(n < 516) //last packet
-            more = 0;
+//         buffer[n] = '\0';
+//         fprintf(fp, "%s\n", buffer+4);
 
-        //send an ack
-        *opcode_ptr = htons(OP_ACK);
-        *(opcode_ptr+1) = htons(block);
+//         if(n < 516) //last packet
+//          {
+//             more = 0;
+            
+//          } else {
+//             blockIndex += 1;
+//          }
+            
 
-        //store contents of this packet
-        for(int i = 0; i < 517; i++)
-            backupBuffer[i] = msg.packet_wrq.filename[i];
-        last_packet_size = 4;
+//       //   //send an ack
+//       //   *opcode_ptr = htons(OP_ACK);
+//       //   *(opcode_ptr+1) = htons(block);
 
-        n = sendto(socket_fd, msg.packet_wrq.filename, last_packet_size, 0, (struct sockaddr*)sock_INF, sizeof(sock_INF));;
-    }    
-    fclose(fp);  
-}
+//         //store contents of this packet
+//         for(int i = 0; i < 516; i++)
+//             backupBuffer[i] = buffer[i];
+//       //   last_packet_size = 4;
+//         // Ack packet
+//       send_ack_packet(socket_fd,sock_INF,&sock_len,blockIndex);
+        
+//     }    .
+//     fclose(fp);  
+// }
 
 
 
@@ -498,7 +586,7 @@ int main(int argc, char** argv)
          {
             myPacket.opcode = opc;
             
-            alarm(10); // Put an alarm on the child
+            alarm(30); // Put an alarm on the child
             pid_t pt = getpid();
             //printf("[Child %d] Handling request from client\n",pt);
             // We are a child process
@@ -515,12 +603,11 @@ int main(int argc, char** argv)
                printf("[debug] packet contents: opcode: %d %s\n",myPacket.opcode,myPacket.packet_wrq.filename);
                // Read all characters from the write request
                char* strMath = myPacket.packet_wrq.filename;
-               uint16_t str1Len = strlen(strMath);
-               char* str2 = (strMath + str1Len);
-               printf("[debug] filename: %s \n data: %s\n",strMath,str2);
+               
+               printf("[debug] filename: %s \n ",strMath);
                
                printf("[Child %d] Handling WRQ from client\n",pt);
-              handle_wrq(socket_fd,&clientaddr,myPacket);
+              wwq(socket_fd,&clientaddr,myPacket);
             }
            
             return 0;
