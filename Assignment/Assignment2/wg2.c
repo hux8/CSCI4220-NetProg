@@ -1,4 +1,4 @@
-#include "../../../Repo/unpv13e/lib/unp.h"
+#include "unp.h"
 #include "dict.h"
 #include "server.h"
 #include <ctype.h>
@@ -38,14 +38,18 @@ int verifyGuess(const char* input, const char* secret, int* countPlace, int* cou
     int wordLength = strlen(secret);  
     int i;  
     if (strlen(input) != wordLength) {
-        *countPlace = -1;
-        *countNum = -1;
+        *countPlace = -1; 
+        *countNum = -1; 
         return 0;
     } else {
         // Convert to same case for every letter
         char* convWord = convertStr(secret,FRM_LOWER);
         char* convInput = convertStr(input,FRM_LOWER);
-        int tmpcountPlace = 0;    
+        int tmpcountPlace = 0; 
+        
+
+        // Determine how many letters are correct and how many are
+        // in the correct place   
         for (i = 0; i < wordLength; i++) {
             if (convInput[i] == convWord[i]) {
                 tmpcountPlace++;
@@ -56,6 +60,7 @@ int verifyGuess(const char* input, const char* secret, int* countPlace, int* cou
             *countNum = 0;
             return 1;
         }
+        
         int tmpCountTotal = 0;  
         int j;  
         for (i = 0; i < wordLength; i++) {
@@ -67,16 +72,12 @@ int verifyGuess(const char* input, const char* secret, int* countPlace, int* cou
                 }
             }
         }
-        *countPlace = tmpcountPlace;
-        *countNum = tmpCountTotal;
-        
         free(convWord);
         free(convInput);
-
+        *countPlace = tmpcountPlace;
+        *countNum = tmpCountTotal;
         return 0;
-    }
-
-    
+    }    
 }
 
 
@@ -84,15 +85,16 @@ void readClientData(SERVER* server,DICT* wordDict,DICT* userDict,char* secretWor
     char* buffer,fd_set* readFDs,fd_set* allFDs)
 {
     int n; // Read bytes
-
-    for (int i = 0; i < MAX_CLIENT; i++) {
+    int i,j;
+    for (i = 0; i < MAX_CLIENT; i++) {
         if ( (server->socketFD = server->clientFDs[i]) == 0) {
             continue;
         }
         if (FD_ISSET(server->socketFD, readFDs)) {
             // Read the data
-            if ( (n = read(server->socketFD, buffer, MAX_LEN)) == -1) {
-                fprintf(stderr, "read error\n");
+            n = read(server->socketFD, buffer, MAX_LEN);
+            if ( n == -1) {
+                perror("readClientData() byte read error!\n");
                 exit(EXIT_FAILURE);
             }
             // Check if the client ended connection
@@ -110,16 +112,11 @@ void readClientData(SERVER* server,DICT* wordDict,DICT* userDict,char* secretWor
                 continue; // Loose emter keystroke?
             }
             else {
-                char* input = newcpy_ext(buffer, n);
-                /*  Two conditions:
-                        Client has typed a username
-                        Client has made a guess
-                */
+                char* input = newcpy_ext(buffer, n);                
                 if (userDict->words[i] == NULL) {
-                    // Check to ensure username is ok
+                    // Check username
                     if (uniqueElement(userDict,input)) {
                         userDict->words[i] = input;
-
                         // Ask for a guess
                         sprintf(buffer, "Let's start playing, %s\n", input);
                         write(server->socketFD, (void*) buffer, strlen(buffer));
@@ -128,7 +125,6 @@ void readClientData(SERVER* server,DICT* wordDict,DICT* userDict,char* secretWor
                                 " The secret word is %d letter(s).\n"
                                 , server->numClients, (int)strlen(secretWord));
                         write(server->socketFD, (void*) buffer, strlen(buffer));
-
                         continue;
                     } else {
                         sprintf(buffer, "Username %s is already taken,"
@@ -136,20 +132,16 @@ void readClientData(SERVER* server,DICT* wordDict,DICT* userDict,char* secretWor
                                 , input);
                         write(server->socketFD, (void*) buffer, strlen(buffer));
                     }
-                }
-                else {
-                    int num_T = 0;
-                    int num_t = 0;
-                    /*  Two conditions:
-                            A correct guess
-                            An incorrect guess
-                    */
-                    if (verifyGuess(input, secretWord, &num_T, &num_t)) {
+                } else {
+                    int numPlaced = 0;
+                    int numCount = 0;
+                    
+                    if (verifyGuess(input, secretWord, &numPlaced, &numCount)) {
                         sprintf(buffer, "%s has correctly guessed the word %s\n"
                                 , userDict->words[i], secretWord);
 
                         // Broadcast to all clients and disconnect all clients
-                        for (int j = 0; j < MAX_CLIENT; j++) {
+                        for (j = 0; j < MAX_CLIENT; j++) {
                             if (server->clientFDs[j] == 0) {
                                 continue;
                             }
@@ -158,13 +150,9 @@ void readClientData(SERVER* server,DICT* wordDict,DICT* userDict,char* secretWor
                         }
                         // Mark the end of the game
                         server->gameFlag = 1;
-
-                        // Free the input
                         free(input);
-
                         break;
-                    }
-                    else {
+                    } else {
                         // Length of input check
                         if (strlen(input) != strlen(secretWord)) {
                             sprintf(buffer, "Invalid guess length."
@@ -174,10 +162,10 @@ void readClientData(SERVER* server,DICT* wordDict,DICT* userDict,char* secretWor
                         } else {
                             sprintf(buffer, "%s guessed %s: %d letter(s) were correct"
                                     " and %d letter(s) were correctly placed.\n"
-                                    , userDict->words[i], input, num_t, num_T);
+                                    , userDict->words[i], input, numCount, numPlaced);
 
                             // Broadcast to all clients
-                            for (int j = 0; j < MAX_CLIENT; j++) {
+                            for (j = 0; j < MAX_CLIENT; j++) {
                                 if (server->clientFDs[j] == 0) {
                                     continue;
                                 }
@@ -216,31 +204,32 @@ void wordCycle(SERVER* server,DICT* wordDict,DICT* userDict,int maxLen)
         // Make use of the select() call
         r_fds = all_fds;
         if ((server->numReady = select(max_fd+1, &r_fds, NULL, NULL, NULL)) < 0) {
-            fprintf(stderr, "select error\n");
+            perror("wordCycle() Select error!\n");
             exit(EXIT_FAILURE);
         }
 
         // Check for new client connection
         if (FD_ISSET(server->listenFD, &r_fds)) {
             // Make a new connection
-            if ((server->connectFD = accept(server->listenFD, (SA*) NULL, NULL)) < 0) {
+            server->connectFD = accept(server->listenFD, (SA*) NULL, NULL);
+            if (server->connectFD< 0) {
                 fprintf(stderr, "accept error\n");
                 exit(EXIT_FAILURE);
             }
             // Check if the # of clients has reached the limit
             if (server->numClients < MAX_CLIENT) {
-                // Ask for a username
+                // Get username
                 sprintf(buff, "Welcome to Guess the Word, please enter your username.\n");
                 write(server->connectFD, (void*) buff, strlen(buff));
 
-                // Update the variables
+                // Update server Stuff
                 FD_SET(server->connectFD, &all_fds);
                 if (server->connectFD > max_fd) {
                     max_fd = server->connectFD;
                 }
                 
-                server->numClients++;
-                for (int i = 0; i < MAX_CLIENT; i++) {
+                server->numClients++; 
+                for (i = 0; i < MAX_CLIENT; i++) {
                     if (server->clientFDs[i] == 0) {
                         server->clientFDs[i] = server->connectFD;
                         break;
@@ -290,7 +279,6 @@ int main(int argc, char* argv[]) {
         wordCycle(server,wordDict,userDict,maxWordLen);        
     }
 
-    
     destroyDictionary(userDict);
     destroyDictionary(wordDict);
     destroyServer(server);
