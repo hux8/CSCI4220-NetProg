@@ -1,3 +1,6 @@
+#ifndef __DICTH
+#define __DICTH
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -38,3 +41,5 @@ void destroyDictionary(DICT* dict); // Destroy dictionary
 // Returns 1 if string is unique in collection
 
 int uniqueElement(const DICT* dict,const char* str);
+
+#endif
