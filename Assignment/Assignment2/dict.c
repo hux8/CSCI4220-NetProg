@@ -52,7 +52,18 @@ DICT* importDictionary(const char* fp)
     }
     return dictionary;
 }
-
+void clearDictionary(DICT* dict)
+{
+    int i;
+    for (i = 0; i < dict->size;i++)
+    {
+        if (dict->words[i] != NULL)
+        {
+            free(dict->words[i]);     
+            dict->words[i] = NULL;      
+        }        
+    }
+}
 void destroyDictionary(DICT* dict)
 {
     int i;

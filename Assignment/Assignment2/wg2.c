@@ -136,6 +136,7 @@ int main(int argc, char* argv[]) {
         int num_clnt = 0;
         int clnt_fd[MAX_CLNT] = {0};
         
+        clearDictionary(userDict);
 
         int end_of_game = 0;
         

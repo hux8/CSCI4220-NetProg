@@ -28,7 +28,7 @@ typedef struct __dict {
 DICT* createDictionary(int count); // Create blank dictionary
 DICT* importDictionary(const char* fp); // Import dictionary from file data
 void modifyDictionary(DICT* dict,int loc,char* word);
-
+void clearDictionary(DICT* dict); // Remove all words from dictionary but keep struct *
 void destroyDictionary(DICT* dict); // Destroy dictionary
 
 
