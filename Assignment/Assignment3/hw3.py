@@ -184,7 +184,7 @@ def run():
 
     my_hostname = socket.gethostname() # Gets my host name
     my_address = socket.gethostbyname(my_hostname) # Gets my IP address from my hostname
-    print("[myself] Running as {0} @ {1}".format(my_hostname,my_address))
+    # print("[myself] Running as {0} @ {1}".format(my_hostname,my_address))
     # Setting up the server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     servicer = KadImplServicer(local_id, int(my_port), my_address, k)
@@ -197,10 +197,13 @@ def run():
         arguments = inputs.split()
 
         if arguments[0] == "BOOTSTRAP":
-
+            remote_hostname = arguments[1]
             my_port = int(arguments[2])
+
+            remote_addr = socket.gethostbyname(remote_hostname)
+
             # Connect to other peer
-            channel = grpc.insecure_channel("127.0.0.1" + ':' + str(my_port))
+            channel = grpc.insecure_channel(str(remote_addr) + ':' + str(my_port))
             stub = csci4220_hw3_pb2_grpc.KadImplStub(channel)
             # Find peer node using servicer node
             nodee = stub.FindNode(csci4220_hw3_pb2.IDKey(node = servicer.node, idkey = local_id))
@@ -352,7 +355,7 @@ def run():
             closest_port = int(closest_node.port)
 
             #Connect to server & stub
-            this_addr = "127.0.0.1" + ':' + str(closest_port)
+            this_addr = closest_node.address + ':' + str(closest_port)
             channel = grpc.insecure_channel(this_addr)
             stub = csci4220_hw3_pb2_grpc.KadImplStub(channel)
 
@@ -367,7 +370,7 @@ def run():
                     remote_host = str(entry.id)
                     remote_port = int(entry.port)
 
-                    my_addr = "127.0.0.1" + ':' + str(remote_port)
+                    my_addr = entry.address + ':' + str(remote_port)
 
                     # Create channel and tell other peer we are quitting
                     channel = grpc.insecure_channel(my_addr)
