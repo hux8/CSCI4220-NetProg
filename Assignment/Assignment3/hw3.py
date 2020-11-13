@@ -84,7 +84,13 @@ class KadImplServicer(csci4220_hw3_pb2_grpc.KadImplServicer):
     def Store(self, request, context):
         # Use the request input to store key and value inside our node
         self.key_value.insert(0, (request.key,request.value))
-        print("Storing key {} value {}".format(request.key,request.value))
+
+        k_closest_nodes = self.find_k_closest_nodes(request.idkey)
+
+        if len(k_closest_nodes) == 0 or k_closest_nodes.id == self.id :
+            a = 1 #do nothing
+        else:
+            print("Storing key {} value \"{}\"".format(request.key,request.value))
         self.update_k_buckets(request.node,1)
         # Return ID key for other peer's usage
         return csci4220_hw3_pb2.IDKey(node = self.node, idkey = self.id)
