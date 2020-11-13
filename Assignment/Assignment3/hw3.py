@@ -365,7 +365,7 @@ def run():
             channel = grpc.insecure_channel(this_addr)
             stub = csci4220_hw3_pb2_grpc.KadImplStub(channel)
 
-            some_idkey = stub.Store(csci4220_hw3_pb2.KeyValue(node = None, key = this_key, value = this_value))
+            some_idkey = stub.Store(csci4220_hw3_pb2.KeyValue(node = servicer.node, key = this_key, value = this_value))
             print("Storing key {} at node {}".format(this_key,some_idkey.idkey))
             channel.close()
 
@@ -383,7 +383,7 @@ def run():
                     stub = csci4220_hw3_pb2_grpc.KadImplStub(channel)
 
                     print("Letting " + remote_host + " know I'm quitting.")
-                    some_idkey = stub.Quit(csci4220_hw3_pb2.IDKey(node = None, idkey = local_id))
+                    some_idkey = stub.Quit(csci4220_hw3_pb2.IDKey(node = servicer.node, idkey = local_id))
                     channel.close()
             print("Shut down node " + str(local_id))
             break
